@@ -15,6 +15,12 @@
 1. Githubで空のリポジトリをつくる
 1. git cloneする
 1. README.md と .gitignore を作成する
+
+### GitHubを操作するためのローカル設定
+1. 
+> git config --global user.name "名前"                                              
+> git config --global user.email メールアドレス
+
 ### Make Python Virtual Environment
 1. python --version # Pythonバージョンの確認
 1. pyenv install 3.10 # python 3.10 のインストール
@@ -119,6 +125,8 @@ def handle_mention(event, say):
         messages=[
             {"role": "user", "content": message},
         ],
+        temperature=os.environ["OPENAI_API_TEMPERATURE"],
+        stream=True
     )
     say(thread_ts=thread_ts, text=response.choices[0]["message"]["content"].strip())
 ```
@@ -127,13 +135,153 @@ def handle_mention(event, say):
 2. メンションしてメッセージを受け取る
 → OpenAIのレスポンスが表示されたらOK
 
-### ぬるぬる応答する
+### ストリーミングで応答する
+1. Python標準のAny型をimportしたり、timeライブラリをimportし、投稿の更新間隔を定数定義する。
+```
+from typing import Any
+import time
+CHAT_UPDATE_INTERVAL_SEC = 1
+```
 
+1. appクライアントの初期化パラメータを変更する
+```
+app = App(
+    signing_secret=os.environ["SLACK_SIGNING_SECRET"],
+    token=os.environ["SLACK_BOT_TOKEN"],
+    process_before_response=True,
+)
+```
+1. LangChainのライブラリをimportする
+```
+import langchain
+from langchain.callbacks.base import BaseCallbackHandler
+from langchain.chat_models import ChatOpenAI
+from langchain.schema import LLMResult
+```
+1. 応答ストリームを受け取るCallbackハンドラークラスを定義する
+```
+class SlackStreamingCallbackHandler(BaseCallbackHandler):
+    last_send_time = time.time()
+    message = ""
+
+    def __init__(self, channel, ts):
+        self.channel = channel
+        self.ts = ts
+
+    def on_llm_new_token(self, token: str, **kwargs) -> None:
+        self.message += token
+
+        now = time.time()
+        if now - self.last_send_time > CHAT_UPDATE_INTERVAL_SEC:
+            self.last_send_time = now
+            app.client.chat_update(
+                channel=self.channel, ts=self.ts, text=f"{self.message}..."
+            )
+
+    def on_llm_end(self, response: LLMResult, **kwargs: Any) -> Any:
+        app.client.chat_update(channel=self.channel, ts=self.ts, text=self.message)
+```
+1. LangChainを使って操作をおこなうように変更する
+```
+    llm = ChatOpenAI(
+        model_name=os.environ["OPENAI_API_MODEL"],
+        temperature=os.environ["OPENAI_API_TEMPERATURE"],
+        streaming=True
+    )
+    
+    # say(thread_ts=thread_ts, text=response.choices[0]["message"]["content"].strip())
+    result = say("\n\nTyping...", thread_ts=thread_ts)
+    ts = result["ts"]
+
+    callback = SlackStreamingCallbackHandler(channel=channel, ts=ts)
+    llm.predict(message, callbacks=[callback])
+```
+
+1. 実行して確認する
+> python app.py
+→ 回答がストリームで得られることを確認する
+→ ※この時点ではSlackから最大4回呼び出されていることがわかります。これは3秒以内に完了しないとリトライするSlack側の仕様によります。
+
+### Lazy handlerでSlackからリトライ呼び出しされる前に単純応答を返す
+1. @app.event にLazyハンドラーを登録し、組み込みのack関数ではすばやく単純な応答を返すことで再送を防ぎます。
+```
+# botへの応答
+# @app.event("app_mention")
+def just_ack(ack):
+    ack()
+
+app.event("app_mention")(ack=just_ack, lazy=[handle_mention])
+```
+1. 実行して確認する
+> python app.py
+→ 回答がストリームで得られ1回だけ呼ばれることを確認する
 
 ### 会話履歴を利用する
+1. boto3とMomentoをインストールする
+> pip install boto3
+> pip install momento
+
+MomentoをLangChainのmemoryモジュールから利用します。
+1. .env にAPIトークンを設定します。
+```
+MOMENTO_AUTH_TOKEN=xxxxxxxx
+MOMENTO_CACHE=xxxxxxxx
+#MOMENTO_TTL=1
+```
+1. memoryモジュールをimportします。各ロールメッセージもimportします。TTLを設定するためにtimedeltaもimportする。
+```
+from langchain.memory import MomentoChatMessageHistory
+from datetime import timedelta
+from langchain.schema import (
+    HumanMessage,
+    SystemMessage
+)
+```
+1. TTLを指定して履歴クライアントを初期化する
+```
+    history = MomentoChatMessageHistory.from_client_params(
+        thread_ts,
+        os.environ["MOMENTO_CACHE"],
+        timedelta(hours=os.environ["MOMENTO_TTL"]),
+    )
+```
+1. 
 
 
 ### AWS Lambdaに対応させる
+1. Lambdaでログを有効にする
+```
+import logging
+import json
+from slack_bolt.adapter.aws_lambda import SlackRequestHandler
+```
+```
+SlackRequestHandler.clear_all_log_handlers()
+logging.basicConfig(
+    format="%(asctime)s [%(levelname)s] %(message)s", level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+```
+
+2. Lambdaから呼び出されるエントリーポイントの関数を定義する
+```
+# AWS Lambda のエントリポイント
+def handler(event, context):
+    logger.info("handler called")
+
+    header = event["headers"]
+    logging.info(json.dumps(header))
+
+    if "x-slack-retry-num" in header:
+        logging.info("SKIP > x-slack-retry-num: " + header["x-slack-retry-num"])
+        return 200
+ 
+    # AWS Lambda 環境のリクエスト情報を app が処理できるよう変換してくれるアダプター
+    slack_handler = SlackRequestHandler(app=app)
+    # 応答はそのまま AWS Lambda の戻り値として返せます
+    return slack_handler.handle(event, context)
+```
+エントリーポイントの関数では、Lambdaのスピンアップ時間が3秒かかった場合に単純応答が返せないことを想定し、再送を無視する制御を入れています。
 
 
 ## Deploy Pipeline
