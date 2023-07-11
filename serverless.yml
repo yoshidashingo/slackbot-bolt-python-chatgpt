@@ -1,0 +1,37 @@
+service: ChatGPTSlackFunction7
+frameworkVersion: '3'
+#useDotenv: true
+
+provider:
+  name: aws
+  region: ap-northeast-1
+  stage: dev
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - lambda:InvokeFunction
+            # - lambda:InvokeAsync
+          Resource: '*'
+
+package:
+  patterns:
+    - '!.venv/**'
+    - '!.env'
+    - '!.gitignore'
+    - '!.python-version'
+    - '!.git/**'
+
+functions:
+  app:
+    name: ChatGPTSlackFunction7-${sls:stage}-app
+    handler: app.handler
+    runtime: python3.10
+    memorySize: 512
+    timeout: 120
+    url: true
+
+plugins:
+  - serverless-python-requirements
+  - serverless-dotenv-plugin

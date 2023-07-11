@@ -281,17 +281,62 @@ def handler(event, context):
     # 応答はそのまま AWS Lambda の戻り値として返せます
     return slack_handler.handle(event, context)
 ```
-エントリーポイントの関数では、Lambdaのスピンアップ時間が3秒かかった場合に単純応答が返せないことを想定し、再送を無視する制御を入れています。
+エントリーポイントの関数では、Lambdaのスピ��アップ時間が3秒かかった場合に単純応答が返せないことを想定し、再送を無視する制御を入れています。
 
 
 ## Deploy Pipeline
 ### requirements.txt を作成する
+1. リポジトリにあげるために現在のライブラリ環境をrequirements.txtに出力します
+> pip freeze > requirements.txt
 
 ### Serverless Framework をセットアップする
-1. インストール
-1. プラグインのインストール
 1. serverless.yml を作成する
+- リポジトリ直下に serverless.yml ファイルを作成する
+```
+service: ChatGPTSlackFunction7
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  region: ap-northeast-1
+  stage: dev
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - lambda:InvokeFunction
+          Resource: '*'
+
+package:
+  patterns:
+    - '!.venv/**'
+    - '!.env'
+    - '!.gitignore'
+    - '!.python-version'
+    - '!.git/**'
+
+functions:
+  app:
+    name: ChatGPTSlackFunction7-${sls:stage}-app
+    handler: app.handler
+    runtime: python3.10
+    memorySize: 512
+    timeout: 120
+    url: true
+
+plugins:
+  - serverless-python-requirements
+  - serverless-dotenv-plugin
+
+```
+1. Serverless Frameworkのインストール
+> npm install -g serverless
+1. プラグインのインストール
+> serverless plugin install -n serverless-python-requirements
+> serverless plugin install -n serverless-python-requirements
 1. パッケージしてリリースする
+> serverless deploy
 1. 確認する
 - 実行環境
 - タイムアウト値
@@ -300,4 +345,10 @@ def handler(event, context):
 
 ### Socket ModeからAWS Lambdaに切り替える
 1. モードの切り替え
+> 左のSocket Modeから「Enable Socket Mode」をOFFにして「Disable」を押下する
 1. 関数URLを認証する
+> 左のEvent Subscriptions の画面のEnable Events直下のRequest URLにLambda関数URLを入力してEnterを押下する
+> 正しいURLを入力すると、Lambda内のBoltがURL確認のアクセスに対してHTTP200を返してくれます。
+> たまに失敗することがあります。スピンアップの時間がかかりすぎている場合などにタイムアウトしている可能性があるため、何度かRetryしてみてください。
+1. Slackbotに質問をして、正しく動くことを確認してください。
+

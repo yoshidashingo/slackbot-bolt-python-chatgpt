@@ -45,9 +45,10 @@ class SlackStreamingCallbackHandler(BaseCallbackHandler):
     last_send_time = time.time()
     message = ""
 
-    def __init__(self, channel, ts):
+    def __init__(self, channel, ts, id_ts):
         self.channel = channel
         self.ts = ts
+        self.id_ts = id_ts
 
     def on_llm_new_token(self, token: str, **kwargs) -> None:
         self.message += token
@@ -60,13 +61,18 @@ class SlackStreamingCallbackHandler(BaseCallbackHandler):
             )
 
     def on_llm_end(self, response: LLMResult, **kwargs: Any) -> Any:
-        # add_ai_message(self.ts, self.message)
+        add_ai_message(self.id_ts, self.message)
         app.client.chat_update(channel=self.channel, ts=self.ts, text=self.message)
 
 def handle_mention(event, say):
     channel = event["channel"]
     thread_ts = event["ts"]
     message = re.sub('<@.*>',"",event["text"])
+
+    # 投稿の先頭(=Momentoキー)を示す：初回はevent["ts"],2回目以降はevent["thread_ts"]
+    id_ts = event["ts"]
+    if "thread_ts" in event:
+        id_ts = event["thread_ts"]
 
     llm = ChatOpenAI(
         model_name=os.environ["OPENAI_API_MODEL"],
@@ -77,27 +83,26 @@ def handle_mention(event, say):
     cache_name = os.environ["MOMENTO_CACHE"]
     ttl = timedelta(hours=1)
     history = MomentoChatMessageHistory.from_client_params(
-        thread_ts,
+        id_ts,
         cache_name,
         ttl,
     )
 
-    # messages = [
-    #     SystemMessage(content="You are a good assistant.")
-    # ]
-    # cached_messages = history.messages
-    # if cached_messages:
-    #     list(map(lambda i: messages.append(i), cached_messages))
-    # messages.append(HumanMessage(content=" "))
+    messages = [
+        SystemMessage(content="You are a good assistant.")
+    ]
+    cached_messages = history.messages
+    if cached_messages:
+        list(map(lambda i: messages.append(i), cached_messages))
+    messages.append(HumanMessage(content=message))
 
-    # history.add_user_message(message)
-    # print(f"メッセージ追加後: {history.messages}")
+    history.add_user_message(message)
 
     result = say("\n\nTyping...", thread_ts=thread_ts)
     ts = result["ts"]
 
-    callback = SlackStreamingCallbackHandler(channel=channel, ts=ts)
-    llm.predict(message, callbacks=[callback])
+    callback = SlackStreamingCallbackHandler(channel=channel, ts=ts, id_ts=id_ts)
+    llm(messages, callbacks=[callback])
 
 # botへの応答
 # @app.event("app_mention")
@@ -106,13 +111,13 @@ def just_ack(ack):
 
 app.event("app_mention")(ack=just_ack, lazy=[handle_mention])
 
-# def add_ai_message(thread_ts, ai_message):
-#     history = MomentoChatMessageHistory.from_client_params(
-#         thread_ts,
-#         os.environ["MOMENTO_CACHE"],
-#         timedelta(hours=1),
-#     )
-#     history.add_ai_message(ai_message)
+def add_ai_message(thread_ts, ai_message):
+    history = MomentoChatMessageHistory.from_client_params(
+        thread_ts,
+        os.environ["MOMENTO_CACHE"],
+        timedelta(hours=1),
+    )
+    history.add_ai_message(ai_message)
 
 
 # アプリを起動します：ローカル起動
