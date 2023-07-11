@@ -23,6 +23,7 @@
 
 ### Make Python Virtual Environment
 1. python --version # Pythonバージョンの確認
+2. 
 1. pyenv install 3.10 # python 3.10 のインストール
 1. pyenv local 3.10 # ローカルでのバージョンを指定
 1. python --version # Pythonバージョンの確認
@@ -281,7 +282,7 @@ def handler(event, context):
     # 応答はそのまま AWS Lambda の戻り値として返せます
     return slack_handler.handle(event, context)
 ```
-エントリーポイントの関数では、Lambdaのスピ��アップ時間が3秒かかった場合に単純応答が返せないことを想定し、再送を無視する制御を入れています。
+エントリーポイントの関数では、Lambdaのスピ���アップ時間が3秒かかった場合に単純応答が返せないことを想定し、再送を無視する制御を入れています。
 
 
 ## Deploy Pipeline
@@ -334,7 +335,7 @@ plugins:
 > npm install -g serverless
 1. プラグインのインストール
 > serverless plugin install -n serverless-python-requirements
-> serverless plugin install -n serverless-python-requirements
+> serverless plugin install -n serverless-dotenv-plugin
 1. パッケージしてリリースする
 > serverless deploy
 1. 確認する

@@ -24,14 +24,11 @@ CHAT_UPDATE_INTERVAL_SEC = 1
 load_dotenv()
 
 # ボットトークンとソケットモードハンドラーを使ってアプリを初期化します
-# app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
 app = App(
     signing_secret=os.environ["SLACK_SIGNING_SECRET"],
     token=os.environ["SLACK_BOT_TOKEN"],
     process_before_response=True,
 )
-
-# openai.api_key = os.environ["OPENAI_API_KEY"]
 
 # ログ
 SlackRequestHandler.clear_all_log_handlers()
@@ -39,7 +36,6 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-
 
 class SlackStreamingCallbackHandler(BaseCallbackHandler):
     last_send_time = time.time()
@@ -49,16 +45,21 @@ class SlackStreamingCallbackHandler(BaseCallbackHandler):
         self.channel = channel
         self.ts = ts
         self.id_ts = id_ts
+        self.interval = CHAT_UPDATE_INTERVAL_SEC
+        self.update_count = 0
 
     def on_llm_new_token(self, token: str, **kwargs) -> None:
         self.message += token
 
         now = time.time()
-        if now - self.last_send_time > CHAT_UPDATE_INTERVAL_SEC:
-            self.last_send_time = now
+        if now - self.last_send_time > self.interval:
             app.client.chat_update(
-                channel=self.channel, ts=self.ts, text=f"{self.message}..."
+                channel=self.channel, ts=self.ts, text=f"{self.message}\n\nTyping..."
             )
+            self.last_send_time = now
+            self.update_count += 1
+            if self.update_count/10 > self.interval:
+                self.interval = self.interval*2
 
     def on_llm_end(self, response: LLMResult, **kwargs: Any) -> Any:
         add_ai_message(self.id_ts, self.message)
