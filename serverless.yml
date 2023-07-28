@@ -29,7 +29,7 @@ functions:
     handler: app.handler
     runtime: python3.10
     memorySize: 512
-    timeout: 120
+    timeout: 900
     url: true
 
 plugins:

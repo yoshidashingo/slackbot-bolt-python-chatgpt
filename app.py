@@ -40,6 +40,8 @@ logger = logging.getLogger(__name__)
 class SlackStreamingCallbackHandler(BaseCallbackHandler):
     last_send_time = time.time()
     message = ""
+    message_context = ""
+    message_blocks = ""
 
     def __init__(self, channel, ts, id_ts):
         self.channel = channel
@@ -63,7 +65,15 @@ class SlackStreamingCallbackHandler(BaseCallbackHandler):
 
     def on_llm_end(self, response: LLMResult, **kwargs: Any) -> Any:
         add_ai_message(self.id_ts, self.message)
-        app.client.chat_update(channel=self.channel, ts=self.ts, text=self.message)
+        # app.client.chat_update(channel=self.channel, ts=self.ts, text=self.message)
+        self.message_context = "ChatGPT で生成される情報は不正確または不適切な場合がありますが、当社の見解を述べるものではありません。 <https://www.cydas.com/aiguide/|生成AI利用におけるガイドライン>"
+        self.message_blocks = '''[
+            {"type": "section", "text": {"type": "mrkdwn", "text": "''' + self.message + '''"}},
+            {"type": "divider"},
+            {"type": "context","elements": [{"type": "mrkdwn","text": "''' + self.message_context + '''"}]}
+            ]
+        '''
+        app.client.chat_update(channel=self.channel, ts=self.ts, blocks=self.message_blocks)
 
 def handle_mention(event, say):
     channel = event["channel"]
