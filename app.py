@@ -73,7 +73,7 @@ class SlackStreamingCallbackHandler(BaseCallbackHandler):
             {"type": "context","elements": [{"type": "mrkdwn","text": "''' + self.message_context + '''"}]}
             ]
         '''
-        app.client.chat_update(channel=self.channel, ts=self.ts, blocks=self.message_blocks)
+        app.client.chat_update(channel=self.channel, ts=self.ts, blocks=self.message_blocks, text=self.message)
 
 def handle_mention(event, say):
     channel = event["channel"]
